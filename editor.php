@@ -117,7 +117,16 @@
       </div>
     </div>
 
-    <script>
+  <script>
+      
+      function add_indexes(dom_list) {
+        let id = 0;
+        for (const child of dom_list.children) {
+          child.setAttribute('data-index', id);
+          id += 1;
+        }
+      }
+      
       /**
        * Get mathematical remainder. a = r mod b, where b > r >= 0
        * @param {number} a - the number to divide
@@ -155,11 +164,14 @@
       const edit_view = document.querySelector(".view.edit");
       const link_view = document.querySelector(".view.link");
 
-      const canvas = document.querySelector("#spots-editor");
-      const ctx = canvas.getContext("2d");
+      const spots_editor = document.querySelector("#spots-editor");
+      const ctx = spots_editor.getContext("2d");
 
       select_edit.children[0].classList.add("selected");
       select_link.children[0].classList.add("selected");
+
+      add_indexes(select_edit);
+      add_indexes(select_link);
 
       update_image(select_edit);
       update_image(select_link);
@@ -173,7 +185,7 @@
         }
       }
 
-      const update_selected = (event) => {
+      const update_selected = (callback) => (event) => {
         const container = event.currentTarget;
         let user_clicked_on = event.target;
 
@@ -192,19 +204,29 @@
         const current_selected = container.querySelector(".selected");
         current_selected.classList.remove("selected");
         user_clicked_on.classList.add("selected");
-
         update_image(container);
+
+        callback(user_clicked_on);
       }
 
-      select_edit.addEventListener("click", update_selected);
-      select_link.addEventListener("click", update_selected);
-
-      canvas.width = 500;
-      canvas.height = 500;
-
       let game = {};
+      game.pictures_count = select_edit.children.length;
+      game.selected_lnk = 0;
+      game.selected_src = 0;
+      game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
+
+      select_edit.addEventListener("click", update_selected((li)  => {
+        game.selected_lnk = Number.parseInt(li.getAttribute('data-index'));
+      }));
+      select_link.addEventListener("click", update_selected((li) => {
+        game.selected_src = Number.parseInt(li.getAttribute('data-index'));
+      }));
+
+      spots_editor.width = 500;
+      spots_editor.height = 500;
+
       {
-        const {x: g_x, y: g_y, width: g_w, height: g_h} = canvas.getBoundingClientRect();
+        const {x: g_x, y: g_y, width: g_w, height: g_h} = spots_editor.getBoundingClientRect();
         game.clientX = g_x;
         game.clientY = g_y;
 
@@ -214,32 +236,61 @@
         game.unit = Math.min(game.width, game.height) / 100;
       }
 
-      game.cursor = {x: 0, y: 0, size: game.unit, display_size: game.unit};
-      game.src_changed = true;
-      edit_view.addEventListener("load", () => { game.src_changed = true; })
+      game.precision_mode = false;
+      
+      // NOTE(ivan): user settings
+      game.settings = {};
+      game.settings.wheel_speed = 1;
 
-      canvas.addEventListener("mouseover", (event) => { 
+      game.cursor = {
+        x: 0, y: 0, 
+        size: game.unit, 
+        display_size: game.unit
+      };
+
+      game.src_changed = true;
+      game.lnk_changed = true;
+
+      edit_view.addEventListener("load", () => { game.src_changed = true; })
+      link_view.addEventListener("load", () => { game.lnk_changed = true; })
+
+      spots_editor.addEventListener("mouseover", (event) => { 
         game.cursor.x = event.clientX - game.clientX; 
         game.cursor.y = event.clientY - game.clientY; 
         game.track_user = true;
       });
-      canvas.addEventListener("mouseleave", (event) => { 
+      spots_editor.addEventListener("mouseleave", (event) => { 
         game.cursor.x = event.clientX - game.clientX; 
         game.cursor.y = event.clientY - game.clientY; 
         game.cursor.down = false; 
         game.track_user = false;
       });
 
-      canvas.addEventListener("mousemove", (event) => {
+      spots_editor.addEventListener("mousemove", (event) => {
         if (game.track_user) {
           game.cursor.x = event.clientX - game.clientX; 
           game.cursor.y = event.clientY - game.clientY; 
         }  
       });
 
-      canvas.addEventListener("wheel", (event) => { 
+      spots_editor.addEventListener("wheel", (event) => {
+        event.preventDefault();
+
+        let precision = 1;
+        
+        if (game.precision_mode) {
+          precision /= 10;
+        }
+
         if (game.track_user) {
-          game.cursor.size = clamp(game.unit * 5, game.cursor.size + (event.deltaY / game.unit), game.unit * 80);
+          game.cursor.size = clamp(
+            game.unit * 5, 
+            game.cursor.size + (event.deltaY / game.unit) * game.settings.wheel_speed * precision, 
+            game.unit * 80
+          );
+        }
+        if (event.deltaMode !== 0) {
+          debugger;
         }
       })
       
@@ -262,15 +313,23 @@
         }
       }
 
+      document.addEventListener("keyup", (e) => {
+        if (e.key === 'Shift') {
+          game.precision_mode = false;
+        }
+      });
+
       document.addEventListener("keydown", (e) => {
         if (e.key.toLowerCase() === "d") {
           game.debug_mode = true;
         } else if (e.key === "Escape") {
           game.debug_mode = false;
+        } else if (e.key === 'Shift') {
+          game.precision_mode = true;
         }
       });
 
-      canvas.addEventListener("mousedown", (e) => {
+      spots_editor.addEventListener("mousedown", (e) => {
         e.preventDefault();
         game.cursor.down = true;        
       });
@@ -284,12 +343,50 @@
       let star_duration = 200;
 
       function loop() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, spots_editor.width, spots_editor.height);
 
         if (game.src_changed) {
           game.src = edit_view.getAttribute("src");
+          game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
           game.src_changed = false;
-          console.log(game.src);
+        }
+        if (game.lnk_changed) {
+          game.lnk = link_view.getAttribute("src");
+          game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
+          game.lnk_changed = false;
+        }
+
+        const CurrentShapeThresholds = {
+          DO_NOTHING: 0,
+          ADD: 1,
+        };
+
+        if (game.shape == CurrentShapeThresholds.ADD) { 
+          const shapes = game.shapes.getOrInsertComputed(game.current_pair, () => []); 
+          shapes.push({
+            x:    game.cursor.holding_x, 
+            y:    game.cursor.holding_y,
+            size: game.cursor.holding_size
+          });
+        }
+        
+
+        // stamp drawing
+        function draw_stamp(x, y, size) {
+          ctx.translate(x, y);
+          ctx.beginPath();
+          let stamp_radius = size;
+          ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
+          ctx.fillStyle = "#facadeA0";
+          ctx.fill();
+          ctx.translate(-x, -y);
+        }
+        
+        const shapes = game.shapes.get(game.current_pair);
+        if (shapes) {
+          for (const shape of shapes) {
+            draw_stamp(shape.x, shape.y, shape.size);
+          }
         }
 
         ctx.save();
@@ -298,7 +395,9 @@
           const now = Date.now();
           const dt = now - game.time;
           game.time = now; 
-
+          
+          // NOTE(ivan): this adds the illusion of smooth scroll between different browsers
+          //             if you rely on browser's scroll input
           if (game.cursor.display_size < game.cursor.size) {
             game.cursor.zoom_velocity += game.cursor.acc_rate * dt
             game.cursor.display_size = clamp(game.cursor.display_size, game.cursor.display_size + game.cursor.zoom_velocity, game.cursor.size);
@@ -314,16 +413,35 @@
 
           if (game.cursor.down) {
             game.cursor.hold_velocity += game.cursor.hold_acc * dt;
+
+            if (game.cursor.holding === 0) {
+              game.cursor.holding_x    = game.cursor.x;
+              game.cursor.holding_y    = game.cursor.y;
+              game.cursor.holding_size = game.cursor.size;
+            }
             game.cursor.holding += game.cursor.hold_velocity * dt;
           } else {
             game.cursor.holding = 0;
             game.cursor.hold_velocity = 0;
+            game.cursor.holding_x    = 0;
+            game.cursor.holding_y    = 0;
+            game.cursor.holding_size = 0;
             game.cursor.display_x = game.cursor.x;
             game.cursor.display_y = game.cursor.y;
           }
 
           let progress = game.cursor.holding / (2 * Math.PI * game.cursor.display_size);
+          
+          
           ctx.translate(game.cursor.display_x, game.cursor.display_y);
+          ctx.beginPath();
+          let stamp_radius = game.cursor.display_size;
+          if (game.cursor.down) {
+            stamp_radius -= 4;
+          }
+          ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
+          ctx.fillStyle = "#facadeA0";
+          ctx.fill();
           
           const before_spin = 6;
           const spin_forward = 9; 
@@ -347,14 +465,6 @@
             cube_size = clamp(cube_size, cube_size * progress * progress * progress, cube_size * 1.2 + game.unit / 2);
           }
 
-          ctx.beginPath();
-          let stamp_radius = game.cursor.display_size;
-          if (game.cursor.down) {
-            stamp_radius -= 4;
-          }
-          ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
-          ctx.fillStyle = "#facadeA0";
-          ctx.fill();
           
 
           if (game.cursor.down) {
@@ -388,21 +498,25 @@
             ctx.stroke(); 
             ctx.restore();
           }
-
+          
           if (progress > 1) {
+            
             if (star_time === null) {
               star_time = game.time;
             }
             let star_progress = 1 - (game.time - star_time) / star_duration;
             let size = Math.max(0, lerp(0, 2 * cube_size, star_progress));
             ctx.drawImage(star_image, -size/2, -size/2,  size, size);
+            game.shape += 1;
           } else {
+            game.shape = 0;
             star_time = null;
           }
         }
 
         ctx.restore();
-        
+
+
         if (game.user_is_on_tab) {
           requestAnimationFrame(loop);
         }
