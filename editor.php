@@ -209,22 +209,78 @@
         callback(user_clicked_on);
       }
 
-      let game = {};
-      game.pictures_count = select_edit.children.length;
-      game.selected_lnk = 0;
-      game.selected_src = 0;
-      game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
+      let game = {
+        pictures_count:          0,
+        selected_lnk:            0,
+        selected_src:            0,
+        current_pair:            0,
+        clientX:                 0,
+        clientY:                 0,
+        width:                   0,
+        height:                  0,
+        unit:                    0,
+        precision:               0,
+        angle:                   0,
+        time:                    0,
+        progress:                0,
 
-      select_edit.addEventListener("click", update_selected((li)  => {
-        game.selected_lnk = Number.parseInt(li.getAttribute('data-index'));
-      }));
-      select_link.addEventListener("click", update_selected((li) => {
-        game.selected_src = Number.parseInt(li.getAttribute('data-index'));
-      }));
+        precision_mode:       false,
+        src_changed:          false,
+        lnk_changed:          false,
+        user_is_on_tab:       false,
 
-      spots_editor.width = 500;
+        shapes:               new Map(),
+
+        cursor: {
+          x:             0,
+          y:             0,
+          size:          0,
+          display_x:     0,
+          display_y:     0,
+          display_size:  0,
+          hold_acc:      0,
+          hold_velocity: 0,
+          holding:       0,
+          acc_rate:      0,
+          zoom_velocity: 0,
+
+          down:          false,
+        },
+
+        settings: {
+          wheel_speed:          0,
+          precision_default:    0,
+          precision_mode_value: 0,
+        },
+
+        get time_updated()  {
+          return Date.now();
+        },
+        get current_pair_updated() {
+          return this.selected_lnk + this.selected_src * this.pictures_count;
+        },
+        get pictures_count_updated() {
+          return select_edit.children.length;
+        },
+        get unit_updated() {
+          return Math.min(this.width, this.height) / 100;
+        },
+        get progress_updated() {
+          return this.cursor.holding / (2 * Math.PI * this.cursor.display_size);
+        }
+      };
+      
+      spots_editor.width  = 500;
       spots_editor.height = 500;
 
+      // NOTE(ivan): initialize user settings
+      {
+        game.settings.wheel_speed          = 1;
+        game.settings.precision_default    = 1;
+        game.settings.precision_mode_value = 10;
+      }
+      
+      // NOTE(ivan): initialize game window
       {
         const {x: g_x, y: g_y, width: g_w, height: g_h} = spots_editor.getBoundingClientRect();
         game.clientX = g_x;
@@ -233,26 +289,48 @@
         game.width = g_w;
         game.height = g_h;
 
-        game.unit = Math.min(game.width, game.height) / 100;
+        game.unit = game.unit_updated;
       }
 
-      game.precision_mode = false;
-      
-      // NOTE(ivan): user settings
-      game.settings = {};
-      game.settings.wheel_speed = 1;
 
-      game.cursor = {
-        x: 0, y: 0, 
-        size: game.unit, 
-        display_size: game.unit
-      };
+      // NOTE(ivan): initialize stamping tool
+      {
+        game.precision_mode       = false;
+        game.cursor.down          = false;
 
-      game.src_changed = true;
-      game.lnk_changed = true;
+        game.cursor.size          = game.unit * 10;
+        game.cursor.display_size  = game.unit * 10;
+
+        game.cursor.hold_acc      = game.unit / 10000;
+        game.cursor.hold_velocity = 0;
+        game.cursor.holding       = 0;
+
+        game.cursor.acc_rate      = 0.05;
+        game.cursor.zoom_velocity = 0;
+
+        game.precision            = game.settings.precision_default;
+      }
+
+      // NOTE(ivan): initialize selected
+      {
+        game.pictures_count = game.pictures_count_updated;
+        game.selected_lnk   = 0;
+        game.selected_src   = 0;
+        game.current_pair   = game.current_pair_updated;
+
+        game.src_changed = true;
+        game.lnk_changed = true;
+      }
 
       edit_view.addEventListener("load", () => { game.src_changed = true; })
       link_view.addEventListener("load", () => { game.lnk_changed = true; })
+
+      select_edit.addEventListener("click", update_selected((li)  => {
+        game.selected_lnk = Number.parseInt(li.getAttribute('data-index'));
+      }));
+      select_link.addEventListener("click", update_selected((li) => {
+        game.selected_src = Number.parseInt(li.getAttribute('data-index'));
+      }));
 
       spots_editor.addEventListener("mouseover", (event) => { 
         game.cursor.x = event.clientX - game.clientX; 
@@ -265,7 +343,6 @@
         game.cursor.down = false; 
         game.track_user = false;
       });
-
       spots_editor.addEventListener("mousemove", (event) => {
         if (game.track_user) {
           game.cursor.x = event.clientX - game.clientX; 
@@ -276,16 +353,12 @@
       spots_editor.addEventListener("wheel", (event) => {
         event.preventDefault();
 
-        let precision = 1;
+        let precision = game.precision;
         
-        if (game.precision_mode) {
-          precision /= 10;
-        }
-
         if (game.track_user) {
           game.cursor.size = clamp(
             game.unit * 5, 
-            game.cursor.size + (event.deltaY / game.unit) * game.settings.wheel_speed * precision, 
+            game.cursor.size + (event.deltaY / game.unit) / precision, 
             game.unit * 80
           );
         }
@@ -294,18 +367,9 @@
         }
       })
       
-      game.time = Date.now();
-      game.angle = 0;
+      game.time           = game.time_updated;
+      game.angle          = 0;
       game.user_is_on_tab = true;
-      game.shapes = new Map();
-      game.cursor.size = 100;
-      game.cursor.down = false;
-      game.cursor.hold_acc = game.unit / 10000;
-      game.cursor.hold_velocity = 0;
-      game.cursor.holding = 0;
-
-      game.cursor.acc_rate = 0.05;
-      game.cursor.zoom_velocity = 0;
 
       game.debug_entry = function () {
         if (this.debug_mode) {
@@ -342,106 +406,57 @@
       let star_time = null;
       let star_duration = 200;
 
+      // stamp drawing
+      function draw_stamp(x, y, size) {
+        ctx.translate(x, y);
+        ctx.beginPath();
+        let stamp_radius = size;
+        ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
+        ctx.fillStyle = "#facadeA0";
+        ctx.fill();
+        ctx.translate(-x, -y);
+      }
+
+      const CurrentShapeThresholds = {
+        DO_NOTHING: 0,
+        ADD: 1,
+      };
+      
+
+      //
+      // Entrypoint
+      //
       function loop() {
         ctx.clearRect(0, 0, spots_editor.width, spots_editor.height);
 
-        if (game.src_changed) {
-          game.src = edit_view.getAttribute("src");
-          game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
-          game.src_changed = false;
-        }
-        if (game.lnk_changed) {
-          game.lnk = link_view.getAttribute("src");
-          game.current_pair = game.selected_lnk + game.selected_src * game.pictures_count;
-          game.lnk_changed = false;
-        }
-
-        const CurrentShapeThresholds = {
-          DO_NOTHING: 0,
-          ADD: 1,
-        };
-
-        if (game.shape == CurrentShapeThresholds.ADD) { 
-          const shapes = game.shapes.getOrInsertComputed(game.current_pair, () => []); 
-          shapes.push({
-            x:    game.cursor.holding_x, 
-            y:    game.cursor.holding_y,
-            size: game.cursor.holding_size
-          });
-        }
-        
-
-        // stamp drawing
-        function draw_stamp(x, y, size) {
-          ctx.translate(x, y);
-          ctx.beginPath();
-          let stamp_radius = size;
-          ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
-          ctx.fillStyle = "#facadeA0";
-          ctx.fill();
-          ctx.translate(-x, -y);
-        }
-        
-        const shapes = game.shapes.get(game.current_pair);
-        if (shapes) {
-          for (const shape of shapes) {
-            draw_stamp(shape.x, shape.y, shape.size);
-          }
-        }
-
+        // draw the shapes
         ctx.save();
         {
-
-          const now = Date.now();
-          const dt = now - game.time;
-          game.time = now; 
-          
-          // NOTE(ivan): this adds the illusion of smooth scroll between different browsers
-          //             if you rely on browser's scroll input
-          if (game.cursor.display_size < game.cursor.size) {
-            game.cursor.zoom_velocity += game.cursor.acc_rate * dt
-            game.cursor.display_size = clamp(game.cursor.display_size, game.cursor.display_size + game.cursor.zoom_velocity, game.cursor.size);
-          } else if (game.cursor.display_size > game.cursor.size) {
-            game.cursor.zoom_velocity += game.cursor.acc_rate * dt
-            game.cursor.display_size = clamp(game.cursor.size, game.cursor.display_size - game.cursor.zoom_velocity, game.cursor.display_size);
-          } else {
-            game.cursor.zoom_velocity = 0;
-          }
-
-          game.angle += 0.001 * dt;
-          game.angle %= 2 * Math.PI;
-
-          if (game.cursor.down) {
-            game.cursor.hold_velocity += game.cursor.hold_acc * dt;
-
-            if (game.cursor.holding === 0) {
-              game.cursor.holding_x    = game.cursor.x;
-              game.cursor.holding_y    = game.cursor.y;
-              game.cursor.holding_size = game.cursor.size;
+          const shapes = game.shapes.get(game.current_pair);
+          if (shapes) {
+            for (const shape of shapes) {
+              draw_stamp(shape.x, shape.y, shape.size);
             }
-            game.cursor.holding += game.cursor.hold_velocity * dt;
-          } else {
-            game.cursor.holding = 0;
-            game.cursor.hold_velocity = 0;
-            game.cursor.holding_x    = 0;
-            game.cursor.holding_y    = 0;
-            game.cursor.holding_size = 0;
-            game.cursor.display_x = game.cursor.x;
-            game.cursor.display_y = game.cursor.y;
           }
+        }
+        ctx.restore();
 
-          let progress = game.cursor.holding / (2 * Math.PI * game.cursor.display_size);
-          
-          
-          ctx.translate(game.cursor.display_x, game.cursor.display_y);
-          ctx.beginPath();
+        // draw the stamp tool
+        ctx.save();
+        {
+          const progress   = game.progress;
+
+          const stamp_x    = game.cursor.display_x;
+          const stamp_y    = game.cursor.display_y;
           let stamp_radius = game.cursor.display_size;
+
           if (game.cursor.down) {
             stamp_radius -= 4;
           }
-          ctx.arc(0, 0, stamp_radius, 0, 2 *  Math.PI);
-          ctx.fillStyle = "#facadeA0";
-          ctx.fill();
+
+          draw_stamp(stamp_x, stamp_y, stamp_radius);
+
+          ctx.translate(game.cursor.display_x, game.cursor.display_y);
           
           const before_spin = 6;
           const spin_forward = 9; 
@@ -466,7 +481,6 @@
           }
 
           
-
           if (game.cursor.down) {
             ctx.beginPath();
             const holding_angle = game.cursor.holding / stamp_radius;
@@ -513,9 +527,89 @@
             star_time = null;
           }
         }
-
         ctx.restore();
+        
+        // update the state
+        {
+          const time_updated = game.time_updated;
+          game.dt   = time_updated - game.time;
+          game.time = time_updated; 
 
+          const dt = game.dt;
+
+          // NOTE(ivan): this adds the illusion of smooth scroll between different browsers
+          //             if you rely on browser's wheel event 
+          {
+            const actual_size   = game.cursor.size;
+            const acc_rate      = game.cursor.acc_rate;
+            let display_size    = game.cursor.display_size;
+            let zoom_velocity   = game.cursor.zoom_velocity;
+
+
+            if (display_size < actual_size) {
+              zoom_velocity += acc_rate * dt
+              display_size = clamp(display_size, display_size + zoom_velocity, actual_size);
+            } else if (display_size > actual_size) {
+              zoom_velocity += game.cursor.acc_rate * dt
+              display_size = clamp(actual_size, display_size - zoom_velocity, display_size);
+            } else {
+              zoom_velocity = 0;
+            }
+
+            game.cursor.display_size  = display_size;
+            game.cursor.zoom_velocity = zoom_velocity;
+          }
+
+          game.angle += 0.001 * dt;
+          game.angle %= 2 * Math.PI;
+
+          if (game.cursor.down) {
+            game.cursor.hold_velocity += game.cursor.hold_acc * dt;
+
+            if (game.cursor.holding === 0) {
+              game.cursor.holding_x    = game.cursor.x;
+              game.cursor.holding_y    = game.cursor.y;
+              game.cursor.holding_size = game.cursor.size;
+            }
+            game.cursor.holding += game.cursor.hold_velocity * dt;
+          } else {
+            game.cursor.holding = 0;
+            game.cursor.hold_velocity = 0;
+            game.cursor.holding_x    = 0;
+            game.cursor.holding_y    = 0;
+            game.cursor.holding_size = 0;
+            game.cursor.display_x = game.cursor.x;
+            game.cursor.display_y = game.cursor.y;
+          }
+
+          game.progress = game.progress_updated;
+
+          if (game.src_changed) {
+            game.src = edit_view.getAttribute("src");
+            game.current_pair = game.current_pair_updated;
+            game.src_changed = false;
+          }
+          if (game.lnk_changed) {
+            game.lnk = link_view.getAttribute("src");
+            game.current_pair = game.current_pair_updated;
+            game.lnk_changed = false;
+          }
+
+          if (game.precision_mode) {
+            game.precision = game.settings.precision_default * game.settings.precision_mode_value;
+          } else {
+            game.precision = game.settings.precision_default;
+          }
+
+          if (game.shape == CurrentShapeThresholds.ADD) { 
+            const shapes = game.shapes.getOrInsertComputed(game.current_pair, () => []); 
+            shapes.push({
+              x:    game.cursor.holding_x, 
+              y:    game.cursor.holding_y,
+              size: game.cursor.holding_size
+            });
+          }
+        }
 
         if (game.user_is_on_tab) {
           requestAnimationFrame(loop);
